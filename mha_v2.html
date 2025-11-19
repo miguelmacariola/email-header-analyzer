@@ -1,0 +1,770 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Email Header Analyzer</title>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <style>
+        :root {
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", sans-serif;
+        }
+        body {
+            background: #fafafa;
+            color: #1c1c1e;
+        }
+        .card {
+            background: #ffffff;
+            border-radius: 20px;
+            border: 1px solid rgba(0,0,0,0.08);
+            box-shadow: 0 8px 20px rgba(0,0,0,0.04);
+            backdrop-filter: blur(20px);
+        }
+        textarea {
+            font-family: ui-monospace, SF Mono, Menlo, Courier, monospace;
+        }
+        .section-title {
+            font-size: 1.2rem;
+            font-weight: 600;
+            letter-spacing: -0.01em;
+        }
+        .btn-primary {
+            background: #007aff;
+            color: white;
+            border-radius: 12px;
+            font-weight: 600;
+            transition: all 0.2s ease;
+        }
+        .btn-primary:hover:not(:disabled) { background: #0063cc; }
+        .btn-primary:disabled {
+            background: #99c7ff;
+            cursor: wait;
+        }
+        .result-badge {
+            padding: 6px 12px;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            font-weight: 700;
+        }
+        .pass { background: #e6ffef; color: #057a3f; border:1px solid rgba(5,122,63,0.2); }
+        .fail { background: #fff0f0; color: #b32222; border:1px solid rgba(179,34,34,0.2); }
+        .neutral { background: #fff8dd; color: #856404; border:1px solid rgba(133,100,4,0.2); }
+        .mono { font-family: ui-monospace, SF Mono, Menlo, monospace; }
+        
+        /* Table Animations */
+        .details-row {
+            transition: all 0.3s ease-in-out;
+            opacity: 0;
+            transform: translateY(-10px);
+            display: none;
+        }
+        .details-row.open {
+            display: table-row;
+            opacity: 1;
+            transform: translateY(0);
+        }
+        .chevron {
+            transition: transform 0.2s;
+        }
+        .chevron.rotate {
+            transform: rotate(180deg);
+        }
+    </style>
+
+</head>
+<body class="p-6 max-w-5xl mx-auto">
+
+<header class="text-center mb-8">
+    <h1 class="text-4xl font-bold tracking-tight mb-2">Email Header Analyzer</h1>
+    <p class="text-gray-500 text-sm">Analyzes email headers for authentication, sender info, and routing.</p>
+</header>
+
+<!-- INPUT AREA -->
+<section class="card p-6 mb-10">
+    <label for="headerInput" class="block mb-3 text-lg font-medium">
+        Paste Raw Email Headers
+    </label>
+
+    <textarea id="headerInput" rows="12"
+        placeholder="Paste full unmodified email headers here…"
+        class="w-full p-4 border rounded-xl bg-gray-50 focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm mono"></textarea>
+
+    <div class="flex justify-end items-center gap-4 mt-4">
+        <!-- Reset icon -->
+        <button onclick="resetAll()" class="p-2 rounded-md hover:bg-gray-100"
+                title="Reset form">
+            <svg xmlns="http://www.w3.org/2000/svg"
+                 class="h-5 w-5 text-gray-600"
+                 fill="none" viewBox="0 0 24 24"
+                 stroke="currentColor" stroke-width="1.5">
+                <path stroke-linecap="round" stroke-linejoin="round"
+                    d="M3 6h18M8 6v12a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2V6M10 3h4l1 3H9l1-3z" />
+            </svg>
+        </button>
+
+        <!-- Analyze button -->
+        <button id="analyzeBtn" onclick="analyzeHeader()"
+                class="btn-primary px-6 py-2 shadow-sm flex items-center gap-2">
+            <svg id="analyzeIcon" xmlns="http://www.w3.org/2000/svg"
+                 class="h-5 w-5 text-white"
+                 fill="none" viewBox="0 0 24 24"
+                 stroke="currentColor" stroke-width="1.5">
+                <path stroke-linecap="round" stroke-linejoin="round"
+                    d="M12 8v4l3 3" />
+            </svg>
+            <!-- Spinner (Hidden by default) -->
+            <svg id="analyzeSpinner" class="animate-spin h-5 w-5 text-white hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <span id="analyzeText">Analyze</span>
+        </button>
+    </div>
+</section>
+
+<!-- RESULTS -->
+<section id="results" class="hidden space-y-8">
+
+    <!-- AUTH SUMMARY -->
+    <div class="card p-5 flex justify-between items-center">
+        <div>
+            <h2 class="section-title mb-1">Authentication Snapshot</h2>
+            <p class="text-gray-600 text-sm">
+                SPF → DKIM → DMARC. Failures highlight spoofing risks.
+            </p>
+        </div>
+
+        <div class="flex gap-3">
+            <div id="spfBadge" class="result-badge neutral">SPF: N/A</div>
+            <div id="dkimBadge" class="result-badge neutral">DKIM: N/A</div>
+            <div id="dmarcBadge" class="result-badge neutral">DMARC: N/A</div>
+        </div>
+    </div>
+
+    <!-- IP + GELOCATION BLOCK -->
+    <div id="senderLocationCard" class="card p-6 hidden">
+        <h2 class="section-title mb-3">Sender IP & Approximate Location</h2>
+        <div id="senderLocationContent" class="text-gray-700 text-base leading-relaxed">
+            <!-- filled by JS -->
+        </div>
+    </div>
+
+    <!-- TLDR SUMMARY -->
+    <div id="tldrSection" class="card p-6 hidden">
+        <h2 class="section-title mb-3">Quick Security Summary</h2>
+        <div id="tldrContent" class="text-gray-700 text-base leading-relaxed"></div>
+    </div>
+
+    <!-- HEADER SUMMARY -->
+    <div class="card p-6">
+        <h2 class="section-title mb-4">Key Header Fields</h2>
+        <div id="summaryTable" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+    </div>
+
+    <!-- SECURITY & AUTH DETAILS -->
+    <div class="card p-6">
+        <h2 class="section-title mb-4">Security & Authentication — Detailed</h2>
+        <div id="securityResults" class="space-y-4"></div>
+    </div>
+
+    <!-- PATH ANALYSIS -->
+    <div class="card p-6">
+        <h2 class="section-title mb-4">Delivery Path Analysis</h2>
+        <div id="pathAnalysis" class="space-y-4"></div>
+    </div>
+
+    <!-- RAW HEADERS -->
+    <div class="card p-6">
+        <div class="flex items-center justify-between">
+            <h2 class="section-title">All Extracted Headers</h2>
+            <button id="toggleHeadersBtn"
+                    onclick="toggleRawHeaders()"
+                    class="text-blue-600 font-medium hidden">
+                Show
+            </button>
+        </div>
+        <div id="allHeadersContent"
+             class="hidden text-sm text-gray-700 mono"></div>
+    </div>
+</section>
+
+<!-- Floating message -->
+<div id="messageBox"
+     class="fixed bottom-6 right-6 bg-black text-white px-4 py-3 rounded-xl shadow-lg text-sm opacity-0 transition pointer-events-none">
+</div>
+
+<script>
+/*************************************************************
+ * UTILITY FUNCTIONS
+ *************************************************************/
+function showMessage(text, isError = false) {
+    const box = document.getElementById('messageBox');
+    box.textContent = text;
+    box.style.opacity = 1;
+    box.style.background = isError ? '#b32222' : '#222';
+    setTimeout(() => (box.style.opacity = 0), 3000);
+}
+
+function toggleRawHeaders() {
+    const content = document.getElementById('allHeadersContent');
+    const btn = document.getElementById('toggleHeadersBtn');
+    if (!content) return;
+    const hidden = content.classList.contains('hidden');
+    content.classList.toggle('hidden');
+    btn.textContent = hidden ? 'Hide' : 'Show';
+}
+
+function toggleHopDetails(id) {
+    const row = document.getElementById(`hop-details-${id}`);
+    const chevron = document.getElementById(`hop-chevron-${id}`);
+    if(row) {
+        const isOpen = row.classList.contains('open');
+        if(isOpen) {
+            row.classList.remove('open');
+            // small delay to allow display:none to work after opacity transition? 
+            // simplified for now:
+            setTimeout(() => { if(!row.classList.contains('open')) row.style.display = 'none'; }, 300);
+            chevron.classList.remove('rotate');
+        } else {
+            row.style.display = 'table-row';
+            // forced reflow
+            void row.offsetWidth;
+            row.classList.add('open');
+            chevron.classList.add('rotate');
+        }
+    }
+}
+
+function resetAll() {
+    document.getElementById('headerInput').value = "";
+    document.getElementById('results').classList.add("hidden");
+    
+    // clear result areas
+    document.getElementById('summaryTable').innerHTML = "";
+    document.getElementById('securityResults').innerHTML = "";
+    document.getElementById('pathAnalysis').innerHTML = "";
+    document.getElementById('allHeadersContent').innerHTML = "";
+    document.getElementById('tldrContent').innerHTML = "";
+    document.getElementById('senderLocationContent').innerHTML = "";
+    
+    // reset badges
+    const setNeutral = el => { el.className = "result-badge neutral"; el.textContent = el.id.replace('Badge','').toUpperCase() + ": N/A"; };
+    setNeutral(document.getElementById('spfBadge'));
+    setNeutral(document.getElementById('dkimBadge'));
+    setNeutral(document.getElementById('dmarcBadge'));
+    
+    document.getElementById('toggleHeadersBtn').classList.add('hidden');
+    document.getElementById('senderLocationCard').classList.add('hidden');
+    document.getElementById('tldrSection').classList.add('hidden');
+    
+    showMessage("Reset complete");
+}
+
+/*************************************************************
+ * PARSING HELPERS
+ *************************************************************/
+function formatLatency(ms) {
+    if (!ms || isNaN(ms)) return "N/A";
+    if (ms < 1000) return `${ms.toFixed(0)} ms`;
+    const sec = ms / 1000;
+    if (sec < 60) return `${sec.toFixed(2)} sec`;
+    return `${(sec / 60).toFixed(1)} min`;
+}
+
+function getSecurityClass(result) {
+    if (!result) return "neutral";
+    const r = result.toLowerCase();
+    if (r.includes("pass") || r.includes("ok")) return "pass";
+    if (r.includes("fail") || r.includes("hard") || r.includes("reject")) return "fail";
+    return "neutral";
+}
+
+function interpretStatus(type, status) {
+    const s = (status || "").toLowerCase();
+    if (s.includes("pass")) return { text: `✓ ${type} passed`, class: "text-green-700" };
+    if (s.includes("fail")) return { text: `✗ ${type} failed — spoof risk`, class: "text-red-700" };
+    if (s.includes("softfail")) return { text: `⚠ ${type} soft fail`, class: "text-yellow-700" };
+    if (s.includes("none")) return { text: `${type} not configured`, class: "text-gray-600" };
+    return { text: `${type}: ${status}`, class: "text-gray-600" };
+}
+
+/*************************************************************
+ * HEADER PARSER
+ *************************************************************/
+function parseAllHeaders(text) {
+    const lines = text.split("\n");
+    let current = null;
+    const list = [];
+    const summary = {};
+
+    const summaryKeys = [
+        "Subject","From","To","Date","Message-ID",
+        "Return-Path","Reply-To","Content-Type",
+        "MIME-Version","X-Mailer","User-Agent",
+        "Authentication-Results"
+    ];
+
+    for (const l of lines) {
+        const m = l.match(/^([\w\-]+):\s*(.*)/);
+        if (m) {
+            if (current) list.push(current);
+            current = { field: m[1], value: m[2], raw: l };
+            if (summaryKeys.includes(m[1])) summary[m[1]] = m[2];
+        } else if (/^\s/.test(l) && current) {
+            current.value += " " + l.trim();
+            current.raw += " " + l.trim();
+        }
+    }
+    if (current) list.push(current);
+
+    const filtered = list.filter(x => !x.field.startsWith("Received"));
+    return { summary, all: filtered };
+}
+
+function parseReceivedHops(text) {
+    const lines = text.split("\n");
+    const blocks = [];
+    let buf = "";
+
+    for (const l of lines) {
+        if (l.startsWith("Received:")) {
+            if (buf) blocks.push(buf);
+            buf = l;
+        } else if (/^\s/.test(l)) {
+            buf += " " + l.trim();
+        }
+    }
+    if (buf) blocks.push(buf);
+
+    const hops = [];
+    let lastTime = null;
+
+    for (let i = blocks.length - 1; i >= 0; i--) {
+        const h = blocks[i];
+        const hop = { raw: h };
+
+        // Standard Extractions
+        const ipMatch = h.match(/(\d{1,3}\.){3}\d{1,3}/);
+        hop.ip = ipMatch ? ipMatch[0] : null;
+
+        const fromMatch = h.match(/from\s+([^\s]+)/i);
+        hop.from = fromMatch ? fromMatch[1] : "Unknown";
+
+        const byMatch = h.match(/by\s+([^\s]+)/i);
+        hop.by = byMatch ? byMatch[1] : "Unknown";
+        
+        // --- NEW: Extra Fields for Comprehensive View ---
+        const withMatch = h.match(/with\s+([^\s;]+)/i);
+        hop.proto = withMatch ? withMatch[1] : null; // e.g. ESMTPS
+        
+        const idMatch = h.match(/id\s+([^\s;]+)/i);
+        hop.id = idMatch ? idMatch[1] : null;
+
+        const forMatch = h.match(/for\s+<([^>]+)>/i) || h.match(/for\s+([^\s;]+)/i);
+        hop.for = forMatch ? forMatch[1] : null;
+
+        const dateMatch = h.match(/;\s*(.*)$/);
+        hop.timeStr = dateMatch ? dateMatch[1].trim() : "Unknown";
+        hop.timestamp = Date.parse(hop.timeStr);
+
+        if (lastTime && hop.timestamp && hop.timestamp <= lastTime) {
+            hop.latency = lastTime - hop.timestamp;
+        } else {
+            hop.latency = null;
+        }
+
+        lastTime = hop.timestamp;
+        hops.push(hop);
+    }
+    return hops;
+}
+
+function parseSecurity(text) {
+    const lines = text.split("\n");
+    let block = "";
+    const out = [];
+
+    for (const l of lines) {
+        if (l.startsWith("Authentication-Results:")) {
+            if (block) out.push(block);
+            block = l;
+        } else if (/^\s/.test(l)) {
+            block += " " + l.trim();
+        } else if (block) {
+            out.push(block);
+            block = "";
+        }
+    }
+    if (block) out.push(block);
+
+    const results = [];
+    const regex = /(spf|dkim|dmarc)\s*=\s*([\w\-]+)(?:\s+reason=([^\s;]+))?(?:\s+header\.d=([^\s;]+))?/gi;
+
+    out.forEach(b => {
+        let m;
+        while ((m = regex.exec(b)) !== null) {
+            results.push({
+                type: m[1].toUpperCase(),
+                status: m[2],
+                reason: m[3] || null,
+                domain: m[4] || null,
+                raw: m[0]
+            });
+        }
+    });
+
+    return results;
+}
+
+/*************************************************************
+ * MAIN ANALYSIS
+ *************************************************************/
+async function analyzeHeader() {
+    const headerText = document.getElementById('headerInput').value.trim();
+    
+    if (!headerText) {
+        showMessage("Please paste raw email headers before analyzing.", true);
+        return;
+    }
+
+    // --- START LOADING STATE ---
+    const btn = document.getElementById('analyzeBtn');
+    const btnText = document.getElementById('analyzeText');
+    const btnIcon = document.getElementById('analyzeIcon');
+    const btnSpinner = document.getElementById('analyzeSpinner');
+    
+    btn.disabled = true;
+    btnText.textContent = "Analyzing...";
+    btnIcon.classList.add('hidden');
+    btnSpinner.classList.remove('hidden');
+    showMessage("Analysis in progress...");
+
+    try {
+        // artificial delay for visual feedback
+        await new Promise(r => setTimeout(r, 600));
+
+        // Clear old data
+        document.getElementById('summaryTable').innerHTML = "";
+        document.getElementById('securityResults').innerHTML = "";
+        document.getElementById('pathAnalysis').innerHTML = "";
+        document.getElementById('allHeadersContent').innerHTML = "";
+        document.getElementById('tldrContent').innerHTML = "";
+        document.getElementById('senderLocationContent').innerHTML = "";
+        document.getElementById('senderLocationCard').classList.add('hidden');
+        document.getElementById('tldrSection').classList.add('hidden');
+
+        // Parse headers
+        const parsed = parseAllHeaders(headerText);
+        const hops = parseReceivedHops(headerText);
+        const security = parseSecurity(headerText);
+
+        // Badges
+        const spfItem = security.find(s => s.type === 'SPF');
+        const dkimItem = security.find(s => s.type === 'DKIM');
+        const dmarcItem = security.find(s => s.type === 'DMARC');
+
+        function updateBadge(el, label, status, reason) {
+            const cls = getSecurityClass(status);
+            el.className = 'result-badge ' + cls;
+            const labelText = status ? status.toUpperCase() : 'N/A';
+            el.textContent = `${label}: ${labelText}`;
+            if (cls === 'fail') {
+                el.title = reason ? `${label} failed — reason: ${reason}` : `${label} failed`;
+            } else if (cls === 'neutral') {
+                el.title = `${label} not configured or unknown`;
+            } else {
+                el.title = `${label} passed`;
+            }
+        }
+
+        updateBadge(document.getElementById('spfBadge'), 'SPF', spfItem?.status, spfItem?.reason);
+        updateBadge(document.getElementById('dkimBadge'), 'DKIM', dkimItem?.status, dkimItem?.reason);
+        updateBadge(document.getElementById('dmarcBadge'), 'DMARC', dmarcItem?.status, dmarcItem?.reason);
+
+        // IP & Geo
+        const firstHop = (hops && hops.length > 0) ? hops[0] : null;
+        let senderIP = null;
+        let ipSource = "Received Headers";
+
+        // 1. Priority: Extract explicit "sender IP is..." from Authentication-Results
+        const authHeaders = parsed.all.filter(h => h.field.toLowerCase() === 'authentication-results');
+        for (const header of authHeaders) {
+            const match = header.value.match(/sender IP is\s+((?:\d{1,3}\.){3}\d{1,3})/i);
+            if (match) {
+                senderIP = match[1];
+                ipSource = "Authentication-Results";
+                break;
+            }
+        }
+
+        // 2. Fallback: Use the first Received hop
+        if (!senderIP) {
+            senderIP = firstHop?.ip || null;
+        }
+
+        let geoHTML = `<p class="text-gray-500">IP not found in headers.</p>`;
+        if (senderIP) {
+            try {
+                let geo = null;
+                let provider = '';
+
+                // STRATEGY: Try primary provider (ipapi.co), fallback to secondary (ipwho.is)
+                try {
+                    const res = await fetch(`https://ipapi.co/${senderIP}/json/`);
+                    if (res.ok) {
+                        const data = await res.json();
+                        if (!data.error) {
+                            geo = {
+                                country: data.country_name,
+                                region: data.region,
+                                city: data.city,
+                                org: data.org
+                            };
+                            provider = 'ipapi.co';
+                        }
+                    }
+                } catch (e) {
+                    console.warn("Primary geo provider failed, switching to fallback.");
+                }
+
+                // Fallback if primary failed
+                if (!geo) {
+                    const res = await fetch(`https://ipwho.is/${senderIP}`);
+                    if (!res.ok) throw new Error('Geo lookup failed');
+                    const data = await res.json();
+                    if (!data.success) throw new Error(data.message || 'Geo lookup failed');
+                    
+                    geo = {
+                        country: data.country || 'Unknown',
+                        region: data.region || '',
+                        city: data.city || '',
+                        org: data.connection?.org || data.connection?.isp || 'Unknown ISP'
+                    };
+                    provider = 'ipwho.is';
+                }
+
+                geoHTML = `
+                    <div class="flex items-center gap-4">
+                        <div>
+                            <div class="flex items-center gap-2">
+                                <div class="mono text-lg font-semibold">${senderIP}</div>
+                                <span class="text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded bg-gray-200 text-gray-600" title="Source: ${ipSource}">${ipSource === 'Authentication-Results' ? 'AUTH' : 'HOP 1'}</span>
+                            </div>
+                            <div class="text-sm text-gray-600">${geo.city ? geo.city + ', ' : ''}${geo.region ? geo.region + ', ' : ''}${geo.country}</div>
+                            <div class="flex gap-2 mt-1">
+                                ${geo.org ? `<div class="text-xs text-gray-500">Provider: ${geo.org}</div>` : ''}
+                                <div class="text-xs text-blue-400 border-l pl-2 border-gray-300" title="Geolocation Database">Source: ${provider}</div>
+                            </div>
+                        </div>
+                        <div class="ml-6 text-sm">
+                            <div class="text-xs text-gray-500">Approximate origin</div>
+                            <div class="font-medium">${geo.country}</div>
+                        </div>
+                    </div>
+                `;
+            } catch (err) {
+                console.log(err);
+                geoHTML = `<div class="flex items-center gap-4">
+                    <div>
+                        <div class="mono text-lg font-semibold">${senderIP}</div>
+                        <div class="text-sm text-red-500">Geolocation unavailable (${err.message})</div>
+                    </div>
+                </div>`;
+            }
+        }
+        document.getElementById('senderLocationContent').innerHTML = geoHTML;
+        document.getElementById('senderLocationCard').classList.remove('hidden');
+
+        // Summary / Spoof Check
+        const from = parsed.summary['From'] || 'Unknown';
+        const returnPath = parsed.summary['Return-Path'] || 'Unknown';
+        
+        const getDomain = (str) => {
+            const m = str.match(/@([^\s>]+)/);
+            if (m) return m[1].toLowerCase();
+            const dm = str.match(/([a-z0-9\-]+\.[a-z\.]{2,})/i);
+            return dm ? dm[1].toLowerCase() : null;
+        };
+
+        const fromDomain = getDomain(from);
+        const returnDomain = getDomain(returnPath);
+        const reasons = [];
+        let spoofScore = 0;
+
+        if ((spfItem?.status || '').toLowerCase().includes('fail')) { reasons.push('SPF failed'); spoofScore += 3; }
+        if ((dkimItem?.status || '').toLowerCase().includes('fail')) { reasons.push('DKIM failed'); spoofScore += 3; }
+        if ((dmarcItem?.status || '').toLowerCase().includes('fail')) { reasons.push('DMARC failed'); spoofScore += 4; }
+        if (fromDomain && returnDomain && fromDomain !== returnDomain) {
+            reasons.push(`From domain (${fromDomain}) differs from Return-Path (${returnDomain})`);
+            spoofScore += 2;
+        }
+        if (security.length === 0) {
+            reasons.push('No Authentication-Results header found');
+            spoofScore += 2;
+        }
+
+        let level = 'Low';
+        if (spoofScore >= 7) level = 'High';
+        else if (spoofScore >= 3) level = 'Medium';
+
+        const tldrEl = document.getElementById('tldrContent');
+        let tldrHTML = `<div class="space-y-2 text-sm">`;
+        tldrHTML += `<div><strong>Spoof Likelihood:</strong> <span class="font-semibold ${level === 'High' ? 'text-red-600' : level === 'Medium' ? 'text-yellow-600' : 'text-green-600'}">${level}</span></div>`;
+        tldrHTML += `<div><strong>From:</strong> <span class="mono">${from}</span></div>`;
+        tldrHTML += `<div><strong>Envelope:</strong> <span class="mono">${returnPath}</span></div>`;
+        tldrHTML += `<div><strong>Hops:</strong> ${hops.length} server(s)</div>`;
+        if (reasons.length > 0) {
+            tldrHTML += `<div class="text-sm mt-2"><strong>Flags:</strong><ul class="list-disc ml-5 text-gray-600">` + reasons.map(r => `<li>${r}</li>`).join('') + `</ul></div>`;
+        }
+        tldrHTML += `</div>`;
+        tldrEl.innerHTML = tldrHTML;
+        document.getElementById('tldrSection').classList.remove('hidden');
+
+        // Fill Summary Table
+        const summaryTable = document.getElementById('summaryTable');
+        const keys = Object.keys(parsed.summary);
+        keys.forEach(k => {
+            const v = parsed.summary[k];
+            const card = document.createElement('div');
+            card.className = 'p-3 bg-gray-50 rounded-lg border';
+            card.innerHTML = `<div class="text-xs text-gray-500">${k}</div><div class="mt-1 mono text-sm text-gray-900 break-all">${v}</div>`;
+            summaryTable.appendChild(card);
+        });
+
+        // Fill Security Details
+        const securityResults = document.getElementById('securityResults');
+        if (security.length === 0) securityResults.innerHTML = `<div class="text-gray-500">No details found.</div>`;
+        else {
+            security.forEach(item => {
+                const cls = getSecurityClass(item.status);
+                const interp = interpretStatus(item.type, item.status);
+                const card = document.createElement('div');
+                card.className = `p-3 rounded-lg ${cls === 'pass' ? 'border-green-100 bg-[#e6ffef]' : cls === 'fail' ? 'border-red-100 bg-[#fff0f0]' : 'border-yellow-50 bg-[#fff8dd]'}`;
+                card.innerHTML = `<div class="flex items-center justify-between"><div class="font-semibold">${item.type}</div><div class="text-xs mono">${(item.status||'N/A').toUpperCase()}</div></div>
+                                  <div class="mt-2 text-sm" style="color: ${interp.class.replace('text-','')};">${interp.text}</div>
+                                  ${item.reason ? `<div class="mt-2 text-xs text-gray-600">Reason: ${item.reason}</div>` : ''}
+                                  <div class="mt-2 text-xs text-gray-500 break-all">Raw: ${item.raw}</div>`;
+                securityResults.appendChild(card);
+            });
+        }
+
+        // Fill Path Analysis (COMPREHENSIVE TABLE)
+        const pathAnalysis = document.getElementById('pathAnalysis');
+        if (!hops.length) {
+            pathAnalysis.innerHTML = `<div class="text-gray-500">No Received headers found.</div>`;
+        } else {
+            let tableHtml = `
+            <div class="overflow-x-auto rounded-lg border border-gray-200">
+                <table class="min-w-full text-sm text-left text-gray-700 border-collapse">
+                    <thead class="text-xs text-gray-500 uppercase bg-gray-50 border-b border-gray-200">
+                        <tr>
+                            <th class="px-4 py-3 w-10"></th>
+                            <th class="px-4 py-3 w-16">Hop</th>
+                            <th class="px-4 py-3">From / By</th>
+                            <th class="px-4 py-3">IP / Protocol</th>
+                            <th class="px-4 py-3">Time</th>
+                            <th class="px-4 py-3 text-right">Latency</th>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white">
+            `;
+            
+            hops.forEach((hop, idx) => {
+                const latencyVal = hop.latency ? formatLatency(hop.latency) : '-';
+                const latencyClass = (hop.latency && hop.latency > 5000) ? 'text-red-600 font-bold' : 'text-gray-600';
+                
+                // Shorten strings for table view
+                const shortFrom = hop.from.length > 30 ? hop.from.substring(0,28) + '...' : hop.from;
+                const shortBy = hop.by.length > 30 ? hop.by.substring(0,28) + '...' : hop.by;
+
+                tableHtml += `
+                    <!-- Summary Row -->
+                    <tr class="hover:bg-gray-50 transition-colors cursor-pointer border-b border-gray-100 last:border-0" 
+                        onclick="toggleHopDetails(${idx})">
+                        <td class="px-4 py-3 text-center">
+                            <svg id="hop-chevron-${idx}" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-gray-400 chevron" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
+                        </td>
+                        <td class="px-4 py-3 font-semibold text-gray-500">#${idx + 1}</td>
+                        <td class="px-4 py-3">
+                            <div class="flex flex-col">
+                                <span class="text-xs font-bold text-gray-700" title="${hop.from}">F: ${shortFrom}</span>
+                                <span class="text-xs text-gray-500" title="${hop.by}">B: ${shortBy}</span>
+                            </div>
+                        </td>
+                        <td class="px-4 py-3">
+                             <div class="flex flex-col">
+                                <span class="mono text-xs bg-gray-100 px-1 rounded w-fit">${hop.ip || '-'}</span>
+                                <span class="text-[10px] text-gray-400 mt-0.5">${hop.proto || ''}</span>
+                             </div>
+                        </td>
+                        <td class="px-4 py-3 text-xs text-gray-500 whitespace-nowrap" title="${hop.timeStr}">
+                            ${hop.timeStr ? hop.timeStr.substring(0, 20) + '...' : 'Unknown'}
+                        </td>
+                        <td class="px-4 py-3 text-xs text-right ${latencyClass}">
+                            ${latencyVal}
+                        </td>
+                    </tr>
+                    
+                    <!-- Details Row (Hidden) -->
+                    <tr id="hop-details-${idx}" class="details-row bg-gray-50 border-b border-gray-200">
+                        <td colspan="6" class="px-6 py-4">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                                <div>
+                                    <div class="text-[10px] uppercase text-gray-400 font-bold">Full Timestamp</div>
+                                    <div class="text-sm text-gray-800">${hop.timeStr}</div>
+                                </div>
+                                <div>
+                                    <div class="text-[10px] uppercase text-gray-400 font-bold">Protocol (WITH)</div>
+                                    <div class="text-sm text-gray-800 font-mono">${hop.proto || 'N/A'} 
+                                        ${(hop.proto || '').match(/S/i) ? '<span class="ml-2 text-[10px] bg-green-100 text-green-800 px-1 py-0.5 rounded border border-green-200">ENCRYPTED</span>' : ''}
+                                    </div>
+                                </div>
+                                <div>
+                                    <div class="text-[10px] uppercase text-gray-400 font-bold">Message ID</div>
+                                    <div class="text-xs text-gray-800 font-mono break-all">${hop.id || 'N/A'}</div>
+                                </div>
+                                <div>
+                                    <div class="text-[10px] uppercase text-gray-400 font-bold">Envelope To (FOR)</div>
+                                    <div class="text-xs text-gray-800 font-mono break-all">${hop.for || 'N/A'}</div>
+                                </div>
+                            </div>
+                            
+                            <div>
+                                <div class="text-[10px] uppercase text-gray-400 font-bold mb-1">Raw Header Content</div>
+                                <div class="bg-white p-3 rounded border text-xs font-mono text-gray-600 whitespace-pre-wrap break-all shadow-sm">${hop.raw}</div>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            });
+            
+            tableHtml += `</tbody></table></div>`;
+            pathAnalysis.innerHTML = tableHtml;
+        }
+
+        // Fill All Headers
+        const allHeadersDiv = document.getElementById('allHeadersContent');
+        allHeadersDiv.innerHTML = parsed.all.map(h => `<div class="py-2 border-b last:border-b-0"><div class="text-xs text-gray-500">${h.field}</div><pre class="mono text-xs mt-1 text-gray-800 whitespace-pre-wrap">${h.value}</pre></div>`).join('');
+        document.getElementById('toggleHeadersBtn').classList.remove('hidden');
+        allHeadersDiv.classList.add('hidden');
+
+        document.getElementById('results').classList.remove('hidden');
+        showMessage('Analysis complete');
+
+    } catch (error) {
+        console.error(error);
+        showMessage("An error occurred during analysis", true);
+    } finally {
+        // --- RESTORE BUTTON STATE ---
+        btn.disabled = false;
+        btnText.textContent = "Analyze";
+        btnIcon.classList.remove('hidden');
+        btnSpinner.classList.add('hidden');
+    }
+}
+</script>
+</body>
+</html>
