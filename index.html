@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Email Header Analyzer</title>
+    <title>Email Header Analyzer v3</title>
 
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -79,7 +79,7 @@
 
 <header class="text-center mb-8">
     <h1 class="text-4xl font-bold tracking-tight mb-2">Email Header Analyzer</h1>
-    <p class="text-gray-500 text-sm">Analyzes email headers for authentication, sender info, and routing.</p>
+    <p class="text-gray-500 text-sm">Analyzes email headers for authentication, provider identity, and routing.</p>
 </header>
 
 <!-- INPUT AREA -->
@@ -129,7 +129,7 @@
 <section id="results" class="hidden space-y-8">
 
     <!-- AUTH SUMMARY -->
-    <div class="card p-5 flex justify-between items-center">
+    <div class="card p-5 flex justify-between items-center flex-wrap gap-4">
         <div>
             <h2 class="section-title mb-1">Authentication Snapshot</h2>
             <p class="text-gray-600 text-sm">
@@ -141,6 +141,14 @@
             <div id="spfBadge" class="result-badge neutral">SPF: N/A</div>
             <div id="dkimBadge" class="result-badge neutral">DKIM: N/A</div>
             <div id="dmarcBadge" class="result-badge neutral">DMARC: N/A</div>
+        </div>
+    </div>
+
+    <!-- PROVIDER IDENTITY SECTION (NEW) -->
+    <div id="providerSection" class="card p-6 hidden">
+        <h2 class="section-title mb-3">Provider Identity</h2>
+        <div id="providerContent" class="flex items-start gap-4">
+            <!-- Filled by JS -->
         </div>
     </div>
 
@@ -224,8 +232,6 @@ function toggleHopDetails(id) {
         const isOpen = row.classList.contains('open');
         if(isOpen) {
             row.classList.remove('open');
-            // small delay to allow display:none to work after opacity transition? 
-            // simplified for now:
             setTimeout(() => { if(!row.classList.contains('open')) row.style.display = 'none'; }, 300);
             chevron.classList.remove('rotate');
         } else {
@@ -249,6 +255,7 @@ function resetAll() {
     document.getElementById('allHeadersContent').innerHTML = "";
     document.getElementById('tldrContent').innerHTML = "";
     document.getElementById('senderLocationContent').innerHTML = "";
+    document.getElementById('providerContent').innerHTML = "";
     
     // reset badges
     const setNeutral = el => { el.className = "result-badge neutral"; el.textContent = el.id.replace('Badge','').toUpperCase() + ": N/A"; };
@@ -259,6 +266,7 @@ function resetAll() {
     document.getElementById('toggleHeadersBtn').classList.add('hidden');
     document.getElementById('senderLocationCard').classList.add('hidden');
     document.getElementById('tldrSection').classList.add('hidden');
+    document.getElementById('providerSection').classList.add('hidden');
     
     showMessage("Reset complete");
 }
@@ -356,9 +364,9 @@ function parseReceivedHops(text) {
         const byMatch = h.match(/by\s+([^\s]+)/i);
         hop.by = byMatch ? byMatch[1] : "Unknown";
         
-        // --- NEW: Extra Fields for Comprehensive View ---
+        // Extra Fields
         const withMatch = h.match(/with\s+([^\s;]+)/i);
-        hop.proto = withMatch ? withMatch[1] : null; // e.g. ESMTPS
+        hop.proto = withMatch ? withMatch[1] : null;
         
         const idMatch = h.match(/id\s+([^\s;]+)/i);
         hop.id = idMatch ? idMatch[1] : null;
@@ -420,6 +428,125 @@ function parseSecurity(text) {
 }
 
 /*************************************************************
+ * PROVIDER DETECTION LOGIC
+ *************************************************************/
+function detectProvider(parsed, hops) {
+    const headers = parsed.all;
+    const summary = parsed.summary;
+    const headerKeys = headers.map(h => h.field.toLowerCase());
+    
+    let provider = { 
+        name: "Unknown / Private Server", 
+        icon: `<div class="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center text-2xl">❓</div>`,
+        reason: "No specific provider signatures found in standard headers." 
+    };
+
+    // --- 1. Specific Header Checks ---
+
+    // Microsoft Exchange / Office 365
+    if (headerKeys.some(k => k.includes('x-ms-exchange') || k.includes('x-forefront') || k.includes('x-office365'))) {
+        return { 
+            name: "Microsoft Exchange / Office 365", 
+            icon: `<div class="w-12 h-12 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-2xl">🏢</div>`,
+            reason: "Detected Exchange/O365 headers (e.g., X-MS-Exchange-..., X-Forefront-Antispam-Report)." 
+        };
+    }
+    
+    // Google Workspace / Gmail
+    if (headerKeys.some(k => k.includes('x-google-dkim') || k.includes('x-gm-message-state'))) {
+         return { 
+            name: "Google Workspace / Gmail", 
+            icon: `<div class="w-12 h-12 bg-red-100 text-red-600 rounded-full flex items-center justify-center text-2xl">G</div>`,
+            reason: "Detected Google-specific headers (e.g., X-Google-DKIM-Signature, X-Gm-Message-State)." 
+        };
+    }
+    
+    // Amazon SES
+    if (headerKeys.includes('x-ses-message-id') || headerKeys.includes('x-aws-outgoing')) {
+        return { 
+            name: "Amazon SES", 
+            icon: `<div class="w-12 h-12 bg-orange-100 text-orange-600 rounded-full flex items-center justify-center text-2xl">☁️</div>`,
+            reason: "Detected Amazon SES headers (X-SES-Message-ID)." 
+        };
+    }
+    
+    // SendGrid
+    if (headerKeys.includes('x-sg-eid') || headerKeys.includes('x-sendgrid-os')) {
+        return { 
+            name: "SendGrid", 
+            icon: `<div class="w-12 h-12 bg-blue-50 text-blue-500 rounded-full flex items-center justify-center text-2xl">SG</div>`,
+            reason: "Detected SendGrid headers (X-SG-EID)." 
+        };
+    }
+
+    // Mailgun
+    if (headerKeys.includes('x-mailgun-sending-ip') || headerKeys.includes('x-mailgun-sid')) {
+         return { 
+            name: "Mailgun", 
+            icon: `<div class="w-12 h-12 bg-gray-200 text-gray-600 rounded-full flex items-center justify-center text-2xl">MG</div>`,
+            reason: "Detected Mailgun headers." 
+        };
+    }
+
+    // Mimecast
+    if (headerKeys.some(k => k.includes('x-mimecast'))) {
+        return {
+            name: "Mimecast",
+            icon: `<div class="w-12 h-12 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center text-2xl">🛡️</div>`,
+            reason: "Detected Mimecast security headers."
+        };
+    }
+
+    // ProtonMail
+    if (headerKeys.some(k => k.includes('x-proton-'))) {
+        return {
+            name: "ProtonMail",
+            icon: `<div class="w-12 h-12 bg-purple-100 text-purple-600 rounded-full flex items-center justify-center text-2xl">🔒</div>`,
+            reason: "Detected ProtonMail headers."
+        };
+    }
+
+    // --- 2. Fallback: Message-ID Analysis ---
+    const msgId = (summary['Message-ID'] || '').toLowerCase();
+    
+    if (msgId.includes('outlook.com') || msgId.includes('eurprd') || msgId.includes('namprd')) {
+         return { 
+            name: "Microsoft Exchange / Office 365", 
+            icon: `<div class="w-12 h-12 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-2xl">🏢</div>`,
+            reason: "Message-ID contains Outlook/Exchange server patterns." 
+        };
+    }
+    
+    if (msgId.includes('google.com') || msgId.includes('gmail.com')) {
+         return { 
+            name: "Google Workspace / Gmail", 
+            icon: `<div class="w-12 h-12 bg-red-100 text-red-600 rounded-full flex items-center justify-center text-2xl">G</div>`,
+            reason: "Message-ID contains Google domain patterns." 
+        };
+    }
+
+    // --- 3. Fallback: Hops Analysis ---
+    const hopString = hops.map(h => h.raw).join(' ').toLowerCase();
+    
+    if (hopString.includes('google.com') || hopString.includes('1e100.net')) {
+         return { 
+            name: "Google Workspace / Gmail", 
+            icon: `<div class="w-12 h-12 bg-red-100 text-red-600 rounded-full flex items-center justify-center text-2xl">G</div>`,
+            reason: "Routing hops contain Google infrastructure (1e100.net, google.com)." 
+        };
+    }
+    if (hopString.includes('outlook.com') || hopString.includes('protection.outlook.com')) {
+         return { 
+            name: "Microsoft Exchange / Office 365", 
+            icon: `<div class="w-12 h-12 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-2xl">🏢</div>`,
+            reason: "Routing hops contain Microsoft protection infrastructure." 
+        };
+    }
+
+    return provider;
+}
+
+/*************************************************************
  * MAIN ANALYSIS
  *************************************************************/
 async function analyzeHeader() {
@@ -453,8 +580,11 @@ async function analyzeHeader() {
         document.getElementById('allHeadersContent').innerHTML = "";
         document.getElementById('tldrContent').innerHTML = "";
         document.getElementById('senderLocationContent').innerHTML = "";
+        document.getElementById('providerContent').innerHTML = "";
+        
         document.getElementById('senderLocationCard').classList.add('hidden');
         document.getElementById('tldrSection').classList.add('hidden');
+        document.getElementById('providerSection').classList.add('hidden');
 
         // Parse headers
         const parsed = parseAllHeaders(headerText);
@@ -483,6 +613,18 @@ async function analyzeHeader() {
         updateBadge(document.getElementById('spfBadge'), 'SPF', spfItem?.status, spfItem?.reason);
         updateBadge(document.getElementById('dkimBadge'), 'DKIM', dkimItem?.status, dkimItem?.reason);
         updateBadge(document.getElementById('dmarcBadge'), 'DMARC', dmarcItem?.status, dmarcItem?.reason);
+
+        // --- NEW: Provider Identity ---
+        const provider = detectProvider(parsed, hops);
+        document.getElementById('providerContent').innerHTML = `
+            ${provider.icon}
+            <div>
+                <div class="text-lg font-bold text-gray-800">${provider.name}</div>
+                <div class="text-sm text-gray-600">${provider.reason}</div>
+            </div>
+        `;
+        document.getElementById('providerSection').classList.remove('hidden');
+
 
         // IP & Geo
         const firstHop = (hops && hops.length > 0) ? hops[0] : null;
